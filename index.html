@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="es" class="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Facturación POS</title>
+    <style>
+        /* Al imprimir solo sale el papel de la vista previa, sin abrir otra pestaña */
+        @media print {
+            @page { size: A4; margin: 12mm; }
+            body > *:not(#previewModal) { display: none !important; }
+            html, body { height: auto !important; overflow: visible !important; background: #fff !important; }
+            #previewModal {
+                position: static !important; inset: auto !important; display: block !important;
+                background: none !important; padding: 0 !important; overflow: visible !important;
+                backdrop-filter: none !important;
+            }
+            #previewModal > div { min-height: 0 !important; display: block !important; }
+            #previewCaja {
+                max-width: none !important; width: 100% !important; margin: 0 !important;
+                box-shadow: none !important; border: 0 !important; border-radius: 0 !important;
+                background: #fff !important; max-height: none !important; overflow: visible !important;
+            }
+            #previewToolbar, .no-imprimir { display: none !important; }
+            #previewPapel { padding: 0 !important; }
+            #previewPapel * { color: #000 !important; border-color: #999 !important; }
+            #previewPapel thead { display: table-header-group; }
+            #previewPapel tr { break-inside: avoid; }
+        }
+    </style>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%230F172A'/><text x='16' y='23' font-family='sans-serif' font-size='18' font-weight='bold' fill='%23fff' text-anchor='middle'>F</text></svg>">
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        surface: {
+                            50: '#F8FAFC',
+                            100: '#F1F5F9',
+                            200: '#E2E8F0',
+                            800: '#1E293B',
+                            900: '#0F172A',
+                            950: '#020617'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        ::-webkit-scrollbar { width: 7px; height: 7px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 99px; }
+        .dark ::-webkit-scrollbar-thumb { background: #334155; }
+        /* la lista de resultados es la que más se desplaza: que se note */
+        #searchResultsGrid::-webkit-scrollbar-thumb { background: #94A3B8; }
+        .dark #searchResultsGrid::-webkit-scrollbar-thumb { background: #64748B; }
+        #searchResultsGrid::-webkit-scrollbar-thumb:hover { background: #64748B; }
+
+        /* Miles de productos: el navegador no pinta ni mide lo que está fuera
+           de la caja, así que la lista se desplaza sola sin trabarse.
+           contain-intrinsic-size deja el Alto estimado para que el scroll
+           tenga la longitud correcta. */
+        #searchResultsGrid > * { content-visibility: auto; contain-intrinsic-size: auto 44px; }
+        #cfgLista > li { content-visibility: auto; contain-intrinsic-size: auto 34px; }
+        /* el contenedor tiene que poder encogerse para que el scroll sea suyo */
+        #searchResultsGrid, #cfgLista { min-height: 0; overscroll-behavior: contain; }
+        /* ---- navegación con teclado ---- */
+        #searchResultsGrid .pos-sel { background:#E2E8F0; border-color:#94A3B8; }
+        .dark #searchResultsGrid .pos-sel { background:#1E293B; border-color:#475569; }
+        #cartTableBody tr.pos-fila { background:#F1F5F9; box-shadow:inset 2px 0 0 #0F172A; }
+        .dark #cartTableBody tr.pos-fila { background:#1E293B; box-shadow:inset 2px 0 0 #F8FAFC; }
+        #cartTableBody:focus { outline:2px solid #0F172A; outline-offset:-2px; }
+        .dark #cartTableBody:focus { outline-color:#F8FAFC; }
+        #cartTableBody tr.pos-fila:focus { outline:2px solid #0F172A; outline-offset:-2px; }
+        .dark #cartTableBody tr.pos-fila:focus { outline-color:#F8FAFC; }
+
+        input[type="number"]::-webkit-inner-spin-button,
+        input[type="number"]::-webkit-outer-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+    </style>
+</head>
+<body class="bg-slate-100 text-slate-800 dark:bg-surface-950 dark:text-slate-100 h-screen h-[100dvh] overflow-hidden flex flex-col transition-colors duration-200 text-xs">
+
+    <header class="shrink-0 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-surface-900 px-3 sm:px-4 py-1.5 sm:py-2">
+        <div class="max-w-7xl 2xl:max-w-[1600px] mx-auto flex items-center justify-between gap-2">
+            <div class="flex items-center gap-2 min-w-0">
+                <img id="marcaLogo" alt="" aria-hidden="true" class="hidden w-7 h-7 rounded object-contain flex-shrink-0">
+                <div id="marcaInicial" class="w-6 h-6 rounded bg-slate-900 dark:bg-white text-white dark:text-slate-900 flex items-center justify-center font-bold text-xs flex-shrink-0">
+                    F
+                </div>
+                <span class="font-semibold text-xs tracking-tight text-slate-900 dark:text-white truncate">Facturación POS</span>
+                <span id="dbLed" class="hidden sm:inline-flex items-center gap-1.5 ml-1 pl-2 border-l border-slate-200 dark:border-slate-800 text-[10px] text-slate-400">
+                    <i id="dbLedIcon" class="fa-solid fa-circle text-[6px] text-slate-300"></i>
+                    <span id="dbLedTexto">conectando…</span>
+                </span>
+            </div>
+
+            <div class="flex items-center gap-3 flex-shrink-0">
+                <button id="btnAjustes" aria-expanded="false" aria-haspopup="dialog" aria-label="Ajustes: datos de la factura y productos"
+                        class="p-1.5 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100" title="Ajustes">
+                    <i class="fa-solid fa-gear text-xs"></i>
+                </button>
+                <button id="btnTema" class="p-1 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100" title="Cambiar tema">
+                    <i id="themeIcon" class="fa-solid fa-moon text-xs"></i>
+                </button>
+                <div class="h-3 w-px bg-slate-200 dark:border-slate-800"></div>
+                <button id="btnLimpiar" class="text-[11px] font-medium text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200">
+                    Limpiar
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="flex-1 min-h-0 max-w-7xl 2xl:max-w-[1600px] w-full mx-auto p-1.5 sm:p-3 lg:pb-3 flex flex-col gap-1.5 sm:gap-3 overflow-y-auto">
+
+        <!-- BUSCADOR CON RESULTADOS COMPACTOS -->
+        <section class="shrink-0 bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-800 rounded-lg p-2 sm:p-2.5 shadow-sm space-y-1.5 sm:space-y-2">
+            <div class="relative flex items-center">
+                <i class="fa-solid fa-magnifying-glass absolute left-3 text-slate-400 text-xs"></i>
+                <input
+                    type="text"
+                    id="searchInput"
+                    placeholder="Buscar por código o nombre...  (↑ ↓ para elegir, Enter para agregar)"
+                    class="w-full bg-slate-50 dark:bg-surface-950 border border-slate-200 dark:border-slate-800 rounded-md pl-8 pr-8 py-1.5 text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-slate-400 dark:focus:border-slate-600"
+                    autocomplete="off"
+                >
+                <button id="btnClearSearch" class="hidden absolute right-3 text-slate-400 hover:text-slate-600">
+                    <i class="fa-solid fa-xmark text-xs"></i>
+                </button>
+            </div>
+
+            <!-- RESULTADOS DE BÚSQUEDA -->
+            <div id="resultsContainer" class="border-t border-slate-100 dark:border-slate-800 pt-2">
+                <div class="hidden sm:flex items-center justify-between mb-1.5 px-0.5 text-[10px] text-slate-400 font-medium uppercase tracking-wider">
+                    <span>Resultados de búsqueda</span>
+                    <span id="resultsCount">0 encontrados</span>
+                </div>
+                <span id="resultsCountMovil" class="sm:hidden text-[10px] text-slate-400 font-medium uppercase tracking-wider">0 encontrados</span>
+
+                <div id="searchResultsGrid" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-1.5 max-h-[min(32dvh,220px)] lg:max-h-[min(40dvh,400px)] overflow-y-auto overscroll-contain">
+                    <!-- Productos del catálogo -->
+                </div>
+            </div>
+        </section>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-2 sm:gap-3 flex-1 min-h-0 lg:min-h-0 lg:max-h-full lg:self-stretch">
+
+            <!-- TABLA DE PRODUCTOS SELECCIONADOS -->
+            <section class="lg:col-span-8 min-h-0 lg:flex-1 lg:min-h-0 max-h-full bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-800 rounded-lg p-2 sm:p-3 shadow-sm flex flex-col overflow-hidden">
+                <div>
+                    <div class="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800 mb-2">
+                        <span class="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Productos Seleccionados</span>
+                        <span id="cartBadge" class="text-[11px] font-medium text-slate-400">0 items</span>
+                    </div>
+
+                    <div class="flex-1 min-h-0 overflow-y-auto overscroll-contain max-h-[calc(100%-0px)] lg:min-h-[200px]">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="text-[10px] font-medium text-slate-400 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800">
+                                    <th class="py-1.5 pl-1 pr-2">Código</th>
+                                    <th class="py-1.5 pr-2">Producto</th>
+                                    <th class="py-1.5 text-center hidden sm:table-cell">Precio</th>
+                                    <th class="py-1.5 text-center w-14 sm:w-24">Cant.</th>
+                                    <th class="py-1.5 text-right pr-1">Subtotal</th>
+                                    <th class="py-1.5 text-center w-8"></th>
+                                </tr>
+                            </thead>
+                            <tbody id="cartTableBody" tabindex="0" aria-label="Productos seleccionados" class="divide-y divide-slate-100 dark:divide-slate-800/60 text-xs focus:outline-none">
+                                <!-- Filas seleccionadas -->
+                            </tbody>
+                        </table>
+
+                        <div id="emptyCartMessage" class="flex-1 min-h-[80px] flex flex-col items-center justify-center py-6 text-slate-400">
+                            <i class="fa-solid fa-basket-shopping text-2xl mb-1 text-slate-300 dark:text-slate-700"></i>
+                            <p class="text-[11px]">No hay productos en la lista</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- RESUMEN DE PRECIOS -->
+            <section class="lg:col-span-4 shrink-0 bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-800 rounded-lg p-2 sm:p-3 shadow-sm space-y-2">
+                <span class="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block border-b border-slate-100 dark:border-slate-800 pb-1.5">
+                    Resumen de Precios
+                </span>
+
+                <!-- Angosto: dos columnas para que quepa sin desplazar la página -->
+                <div class="grid grid-cols-2 lg:grid-cols-1 gap-x-3 gap-y-2">
+                    <div class="space-y-2">
+                        <div>
+                            <label class="block text-[10px] font-medium text-slate-400 uppercase mb-1" for="clientName">Cliente</label>
+                            <input type="text" id="clientName" list="listaClientes" autocomplete="off" value="Consumidor Final"
+                                   class="w-full bg-slate-50 dark:bg-surface-950 border border-slate-200 dark:border-slate-800 rounded px-2 py-1 text-xs text-slate-800 dark:text-slate-200 focus:outline-none">
+                            <datalist id="listaClientes"></datalist>
+                        </div>
+                        <div class="flex flex-wrap justify-between items-center gap-1 text-slate-500 text-xs">
+                            <label class="text-[10px] font-medium text-slate-400 uppercase" for="discountInput">Descuento</label>
+                            <span class="flex items-center gap-0.5">
+                                <span class="text-slate-400 text-xs">$</span>
+                                <input type="number" id="discountInput" value="0" min="0" aria-label="Descuento en pesos"
+                                       class="w-20 lg:w-16 bg-slate-50 dark:bg-surface-950 border border-slate-200 dark:border-slate-800 rounded px-1.5 py-0.5 text-[11px] text-right font-mono text-slate-800 dark:text-slate-200 focus:outline-none">
+                            </span>
+                        </div>
+                    </div>
+
+                    <div class="space-y-1">
+                        <div class="flex justify-between gap-2 text-slate-500 text-xs">
+                            <span>Subtotal</span>
+                            <span id="summarySubtotal" class="font-mono text-slate-800 dark:text-slate-200">$0</span>
+                        </div>
+                        <div class="flex justify-between gap-2 text-slate-500 text-xs">
+                            <span>IVA (<span id="taxRate">0</span>%)</span>
+                            <span id="summaryTax" class="font-mono text-slate-800 dark:text-slate-200">$0</span>
+                        </div>
+                        <div class="pt-1.5 border-t border-slate-100 dark:border-slate-800">
+                            <div class="flex justify-between items-baseline gap-2" role="status" aria-live="polite" aria-atomic="true">
+                                <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">TOTAL</span>
+                                <span id="summaryTotal" class="text-xl font-bold font-mono tracking-tight text-slate-900 dark:text-white">$0</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="pt-2 space-y-1.5">
+                    <button id="btnProcesar" class="hidden lg:block w-full bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-900 font-medium py-2 rounded text-xs transition-colors">
+                        Completar Factura
+                    </button>
+                    <button id="btnImprimir" class="w-full border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 font-medium py-1.5 rounded text-xs transition-colors">
+                        Imprimir Vista Previa
+                    </button>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <!-- AJUSTES: datos de la factura y catálogo -->
+    <div id="ajustesModal" role="dialog" aria-modal="true" aria-labelledby="ajustesTitulo"
+         class="fixed inset-0 bg-slate-900/20 dark:bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center hidden opacity-0 transition-opacity duration-200">
+        <div class="bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-800 rounded-lg w-[calc(100%-1.5rem)] max-w-2xl max-h-[90dvh] flex flex-col shadow-xl">
+            <div class="flex items-center justify-between gap-2 px-3 py-2.5 border-b border-slate-100 dark:border-slate-800">
+                <h2 id="ajustesTitulo" class="text-xs font-bold text-slate-900 dark:text-white uppercase">Ajustes</h2>
+                <button id="btnCerrarAjustes" aria-label="Cerrar ajustes" class="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-100">
+                    <i class="fa-solid fa-xmark text-sm"></i>
+                </button>
+            </div>
+
+            <div class="flex gap-1 px-3 pt-2 border-b border-slate-100 dark:border-slate-800" role="tablist">
+                <button id="pestanaDatos" role="tab" aria-selected="true"
+                        class="px-2.5 py-1.5 text-[11px] font-medium rounded-t border-b-2 border-slate-900 dark:border-white text-slate-900 dark:text-white">Datos de la factura</button>
+                <button id="pestanaProductos" role="tab" aria-selected="false"
+                        class="px-2.5 py-1.5 text-[11px] font-medium rounded-t border-b-2 border-transparent text-slate-400">Productos</button>
+            </div>
+
+            <div class="p-3 overflow-y-auto">
+                <!-- Pestaña: datos de la factura -->
+                <div id="panelAjustesdatos" class="space-y-2.5" role="tabpanel" aria-labelledby="pestanaDatos">
+                    <div class="flex items-end gap-3">
+                        <div>
+                            <span class="block text-[10px] font-medium text-slate-400 uppercase mb-1">Logo</span>
+                            <img id="cfgLogoPrevia" alt="" aria-hidden="true" class="hidden w-14 h-14 rounded border border-slate-200 dark:border-slate-800 object-contain bg-white">
+                        </div>
+                        <div class="flex-1 min-w-0 space-y-1.5">
+                            <input type="url" id="cfgLogo" placeholder="Dirección del logo (https://…)"
+                                   class="w-full bg-slate-50 dark:bg-surface-950 border border-slate-200 dark:border-slate-800 rounded px-2.5 py-1.5 text-xs focus:outline-none focus:border-slate-400">
+                            <div class="flex flex-wrap items-center gap-1.5">
+                                <label for="cfgLogoArchivo" class="cursor-pointer text-[11px] px-2 py-1 border border-slate-200 dark:border-slate-800 rounded hover:bg-slate-50 dark:hover:bg-slate-800">
+                                    Subir imagen
+                                </label>
+                                <input id="cfgLogoArchivo" type="file" accept="image/*" class="sr-only">
+                                <button type="button" id="btnQuitarLogo" class="text-[11px] text-slate-400 hover:text-rose-500">Quitar</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        <label class="block">
+                            <span class="block text-[10px] font-medium text-slate-400 uppercase mb-1">Empresa *</span>
+                            <input type="text" id="cfgNombre" class="w-full bg-slate-50 dark:bg-surface-950 border border-slate-200 dark:border-slate-800 rounded px-2.5 py-1.5 text-xs focus:outline-none focus:border-slate-400">
+                        </label>
+                        <label class="block">
+                            <span class="block text-[10px] font-medium text-slate-400 uppercase mb-1">NIT / Razón social</span>
+                            <input type="text" id="cfgRfc" class="w-full bg-slate-50 dark:bg-surface-950 border border-slate-200 dark:border-slate-800 rounded px-2.5 py-1.5 text-xs focus:outline-none focus:border-slate-400">
+                        </label>
+                        <label class="block sm:col-span-2">
+                            <span class="block text-[10px] font-medium text-slate-400 uppercase mb-1">Dirección</span>
+                            <input type="text" id="cfgDireccion" class="w-full bg-slate-50 dark:bg-surface-950 border border-slate-200 dark:border-slate-800 rounded px-2.5 py-1.5 text-xs focus:outline-none focus:border-slate-400">
+                        </label>
+                        <label class="block">
+                            <span class="block text-[10px] font-medium text-slate-400 uppercase mb-1">Teléfono</span>
+                            <input type="tel" id="cfgTelefono" class="w-full bg-slate-50 dark:bg-surface-950 border border-slate-200 dark:border-slate-800 rounded px-2.5 py-1.5 text-xs focus:outline-none focus:border-slate-400">
+                        </label>
+                        <label class="block">
+                            <span class="block text-[10px] font-medium text-slate-400 uppercase mb-1">Correo</span>
+                            <input type="email" id="cfgCorreo" class="w-full bg-slate-50 dark:bg-surface-950 border border-slate-200 dark:border-slate-800 rounded px-2.5 py-1.5 text-xs focus:outline-none focus:border-slate-400">
+                        </label>
+                        <label class="block">
+                            <span class="block text-[10px] font-medium text-slate-400 uppercase mb-1">IVA (%)</span>
+                            <input type="number" id="cfgImpuesto" min="0" max="100" step="0.1" inputmode="decimal"
+                                   class="w-full bg-slate-50 dark:bg-surface-950 border border-slate-200 dark:border-slate-800 rounded px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:border-slate-400">
+                        </label>
+                    </div>
+
+                    <div class="flex justify-end pt-1">
+                        <button id="btnGuardarAjustes" class="w-full sm:w-auto bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-900 font-medium py-2 px-4 rounded text-xs">Guardar cambios</button>
+                    </div>
+                </div>
+
+                <!-- Pestaña: catálogo -->
+                <div id="panelAjustesproductos" class="space-y-2.5" role="tabpanel" aria-labelledby="pestanaProductos">
+                    <div class="flex items-center gap-2">
+                        <input type="text" id="cfgBuscar" placeholder="Buscar producto..."
+                               class="flex-1 min-w-0 bg-slate-50 dark:bg-surface-950 border border-slate-200 dark:border-slate-800 rounded px-2.5 py-1.5 text-xs focus:outline-none focus:border-slate-400">
+                        <button id="btnNuevoProducto" class="flex-shrink-0 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-900 font-medium py-1.5 px-3 rounded text-xs">Nuevo</button>
+                    </div>
+                    <p id="cfgTotal" class="text-[10px] text-slate-400"></p>
+
+                    <ul id="cfgLista" class="border border-slate-200 dark:border-slate-800 rounded max-h-[38dvh] overflow-y-auto"></ul>
+
+                    <div id="cfgForm" class="hidden border border-slate-200 dark:border-slate-800 rounded p-2.5 space-y-2">
+                        <div class="text-[11px] font-semibold text-slate-500 uppercase" id="cfgFormTitulo">Nuevo producto</div>
+                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                            <label class="block">
+                                <span class="block text-[10px] text-slate-400 uppercase mb-1">Código</span>
+                                <input type="text" id="cfgCodigo" placeholder="P101"
+                                       class="w-full bg-slate-50 dark:bg-surface-950 border border-slate-200 dark:border-slate-800 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:border-slate-400">
+                            </label>
+                            <label class="block col-span-2">
+                                <span class="block text-[10px] text-slate-400 uppercase mb-1">Producto *</span>
+                                <input type="text" id="cfgProductoNombre"
+                                       class="w-full bg-slate-50 dark:bg-surface-950 border border-slate-200 dark:border-slate-800 rounded px-2 py-1 text-xs focus:outline-none focus:border-slate-400">
+                            </label>
+                            <label class="block">
+                                <span class="block text-[10px] text-slate-400 uppercase mb-1">Unidad</span>
+                                <input type="text" id="cfgUnidad"
+                                       class="w-full bg-slate-50 dark:bg-surface-950 border border-slate-200 dark:border-slate-800 rounded px-2 py-1 text-xs focus:outline-none focus:border-slate-400">
+                            </label>
+                            <label class="block">
+                                <span class="block text-[10px] text-slate-400 uppercase mb-1">Precio *</span>
+                                <div class="relative">
+                                    <span class="absolute left-1.5 top-1/2 -translate-y-1/2 text-[11px] text-slate-400 pointer-events-none">$</span>
+                                    <input type="text" id="cfgPrecio" inputmode="numeric" autocomplete="off"
+                                           aria-label="Precio en pesos"
+                                           class="w-full max-w-[7.5rem] pl-4 pr-1.5 bg-slate-50 dark:bg-surface-950 border border-slate-200 dark:border-slate-800 rounded py-1 text-[11px] font-mono text-right focus:outline-none focus:border-slate-400">
+                                </div>
+                            </label>
+                            <label class="block">
+                                <span class="block text-[10px] text-slate-400 uppercase mb-1">Impuesto % (opcional)</span>
+                                <input type="number" id="cfgProductoImpuesto" min="0" max="100" step="0.1" inputmode="decimal" placeholder="0"
+                                       class="w-full max-w-[6rem] bg-slate-50 dark:bg-surface-950 border border-slate-200 dark:border-slate-800 rounded px-2 py-1 text-[11px] font-mono focus:outline-none focus:border-slate-400">
+                            </label>
+                        </div>
+                        <div class="flex justify-end gap-1.5">
+                            <button id="btnCancelarProducto" class="px-3 py-1.5 text-[11px] border border-slate-200 dark:border-slate-800 rounded hover:bg-slate-50 dark:hover:bg-slate-800">Cancelar</button>
+                            <button id="btnGuardarProducto" class="px-3 py-1.5 text-[11px] bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded">Guardar producto</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- BARRA INFERIOR FIJA: en móvil el cobro nunca queda fuera de pantalla -->
+    <div class="lg:hidden shrink-0 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-surface-900 px-3 py-1.5 flex items-center gap-3">
+        <div class="min-w-0">
+            <div class="text-[9px] uppercase tracking-wider text-slate-400 font-medium">Total</div>
+            <div id="totalMovil" class="text-lg font-bold font-mono text-slate-900 dark:text-white leading-tight">$0</div>
+        </div>
+        <button id="btnProcesarMovil" class="ml-auto flex-1 sm:flex-none sm:w-44 bg-slate-900 active:bg-slate-800 dark:bg-white text-white dark:text-slate-900 font-medium py-2 rounded text-xs transition-colors">
+            Completar Factura
+        </button>
+    </div>
+
+    <!-- MODAL DE CONFIRMACIÓN -->
+    <div id="invoiceModal" role="dialog" aria-modal="true" aria-labelledby="modalTitulo"
+         class="fixed inset-0 bg-slate-900/20 dark:bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center hidden opacity-0 transition-opacity duration-200">
+        <div class="bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-800 rounded-lg max-w-xs w-[calc(100%-1.5rem)] max-h-[88dvh] overflow-y-auto p-4 shadow-xl">
+            <div class="text-center">
+                <i class="fa-solid fa-circle-check text-2xl text-emerald-500 mb-1" aria-hidden="true"></i>
+                <h3 id="modalTitulo" class="text-xs font-bold text-slate-900 dark:text-white uppercase">Factura Completada</h3>
+
+                <div id="modalReceiptDetails" class="my-3 bg-slate-50 dark:bg-surface-950 p-2.5 rounded text-left text-[11px] space-y-1 font-mono">
+                    <!-- Detalles -->
+                </div>
+
+                <div class="flex gap-1.5">
+                    <button id="btnCerrarModal" class="flex-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-medium py-2 rounded text-xs">
+                        Cerrar
+                    </button>
+                    <button id="btnNuevaVenta" class="flex-1 bg-slate-900 text-white dark:bg-white dark:text-slate-900 font-medium py-2 rounded text-xs">
+                        Nueva Venta
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- VISTA PREVIA DE LA FACTURA (misma pestaña) -->
+    <div id="previewModal" role="dialog" aria-modal="true" aria-labelledby="previewTitulo"
+         class="fixed inset-0 bg-slate-900/40 dark:bg-black/60 backdrop-blur-sm z-50 hidden p-2 sm:p-6 overflow-y-auto">
+        <div class="min-h-full flex items-start sm:items-center justify-center">
+            <div id="previewCaja" class="w-full max-w-3xl bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-2xl my-auto overflow-hidden">
+                <div id="previewToolbar" class="flex items-center gap-2 px-3 py-2 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-surface-950">
+                    <i class="fa-solid fa-file-invoice text-slate-400 text-xs" aria-hidden="true"></i>
+                    <h3 id="previewTitulo" class="text-xs font-bold uppercase text-slate-700 dark:text-slate-200 flex-1">Vista previa de la factura</h3>
+                    <button id="btnPreviewImprimir" class="bg-slate-900 text-white dark:bg-white dark:text-slate-900 font-medium px-3 py-1.5 rounded text-xs">
+                        <i class="fa-solid fa-print mr-1" aria-hidden="true"></i>Imprimir
+                    </button>
+                    <button id="btnPreviewCerrar" aria-label="Cerrar vista previa"
+                            class="w-8 h-8 grid place-items-center text-slate-500 hover:text-slate-900 dark:hover:text-white border border-transparent hover:border-slate-300 dark:hover:border-slate-700 rounded transition-colors">
+                        <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+                    </button>
+                </div>
+                <div id="previewPapel" class="p-4 sm:p-6 text-slate-900 text-[13px] leading-relaxed bg-white dark:bg-white">
+                    <!-- se arma sola -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- TOAST NOTIFICACIONES -->
+    <div id="toastContainer" class="fixed bottom-20 lg:bottom-4 left-2 sm:left-auto right-2 sm:right-4 z-50 flex flex-col items-end gap-1.5 pointer-events-none" role="status" aria-live="polite"></div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script src="js/config.js"></script>
+<script src="js/db.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/ajustes.js"></script>
+<script src="js/pos.js"></script>
+</body>
+</html>
