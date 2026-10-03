@@ -1,5 +1,9 @@
 # Sistema de Facturación (HTML + CSS + JS + Firebase)
 
+## demo 
+
+https://lozanoth.github.io/system/
+
 Sistema básico de facturación en el navegador. No requiere servidor ni build: abre `index.html` y funciona.
 
 Los precios (catálogo), los clientes y las facturas se **guardan y se cargan desde Firebase Realtime Database**, de modo que los datos se comparten entre dispositivos y sobreviven al cerrar el navegador.
