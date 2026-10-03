@@ -1,6 +1,12 @@
 /* =========================================================
    Utilidades de interfaz
+   Escapado de HTML, formato de dinero y fechas, avisos
+   en pantalla y el diálogo de confirmación que sustituye
+   a window.confirm.
    ========================================================= */
+
+/* Estado del diálogo: qué botón lo abrió y si hay una pregunta pendiente. */
+const confirmacion = { origen: null, pendiente: null };
 
 const UI = {
   /** Escapa HTML para evitar inyección en las tablas */
@@ -24,21 +30,6 @@ const UI = {
     });
   },
 
-  /** 1234.56 (sin símbolo) */
-  numero(valor, decimales = 2) {
-    const n = Number(valor) || 0;
-    return n.toLocaleString(CONFIG.moneda.locale, {
-      minimumFractionDigits: decimales,
-      maximumFractionDigits: decimales
-    });
-  },
-
-  /** yyyy-mm-dd */
-  hoy() {
-    const d = new Date();
-    return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
-  },
-
   /** "2 oct 2026" */
   fecha(iso) {
     if (!iso) return "—";
@@ -56,135 +47,130 @@ const UI = {
     return hora ? `${base} · ${hora}` : base;
   },
 
-  toast(mensaje, tipo = "ok") {
-    const cont = document.getElementById("toasts");
-    const el = document.createElement("div");
-    el.className = "toast " + tipo;
-    el.textContent = mensaje;
-    cont.appendChild(el);
-    setTimeout(() => {
-      el.style.opacity = "0";
-      el.style.transition = "opacity .25s";
-      setTimeout(() => el.remove(), 250);
-    }, 2600);
-  },
-
-  vacio(tbody, mensaje, sub) {
-    tbody.innerHTML = `
-      <tr><td colspan="99" style="text-align:center;color:var(--muted);padding:28px">
-        ${UI.esc(mensaje)}${sub ? `<br><small>${UI.esc(sub)}</small>` : ""}
-      </td></tr>`;
-  },
-
-  /** Normaliza texto para búsquedas */
+  /** Normaliza texto para búsquedas: sin mayúsculas ni tildes */
+  /* Para comparar: sin mayúsculas, sin tildes y con los espacios
+     de siempre. Si no, buscar "cafe  molido" (dos espacios, muy fácil
+     deTeclear) no encontraría "café molido". */
   normalizar(texto) {
     return String(texto || "").toLowerCase().normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "");
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
   },
 
-  /** Puntúa qué tanto coincide un texto con la consulta. 0 = no coincide. */
-  puntuar(texto, consulta) {
-    const t = UI.normalizar(texto).trim();
-    const c = UI.normalizar(consulta).trim();
-    if (!t || !c) return 0;
-    if (t === c) return 100;
-    if (t.startsWith(c)) return 80;
+  /* ---------- diálogo de confirmación ----------
+     Reemplaza a window.confirm: se ve como el resto de la
+     aplicación, admite dos botones y devuelve una promesa. */
 
-    const palabras = t.split(/[^a-z0-9]+/).filter(Boolean);
-    const partes = c.split(/\s+/).filter(Boolean);
-    if (!palabras.length) return 0;
+  confirmar(opciones = {}) {
+    const {
+      titulo = "¿Está seguro?",
+      mensaje = "",
+      detalle = "",
+      ok = "Confirmar",
+      cancelar = "Cancelar",
+      peligro = false
+    } = opciones;
 
-    // Varias palabras: se exige que todas aparezcan (por inicio de palabra).
-    // El crédito parcial solo satura la lista de resultados, así que no se da.
-    if (partes.length > 1) {
-      return partes.every(p => palabras.some(w => w.startsWith(p))) ? 55 : 0;
-    }
+    const modal = document.getElementById("confirmModal");
+    const icono = document.getElementById("confirmIcono");
+    const textoDetalle = document.getElementById("confirmDetalle");
+    const aceptar = document.getElementById("confirmAceptar");
+    const cancelarBtn = document.getElementById("confirmCancelar");
 
-    const i = t.indexOf(c);
-    return i > 0 ? 65 - Math.min(i, 20) : 0;
-  },
+    document.getElementById("confirmTitulo").textContent = titulo;
+    document.getElementById("confirmMensaje").textContent = mensaje;
+    textoDetalle.textContent = detalle;
+    textoDetalle.classList.toggle("hidden", !detalle);
 
-  /** Resalta en el texto la parte que coincide con la consulta */
-  resaltar(texto, consulta) {
-    const original = String(texto || "");
-    const c = UI.normalizar(consulta).trim();
-    if (!c) return UI.esc(original);
-    const sinAcento = original.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-    const i = sinAcento.indexOf(c);
-    if (i === -1) return UI.esc(original);
-    return UI.esc(original.slice(0, i)) + "<mark>" + UI.esc(original.slice(i, i + c.length)) + "</mark>" + UI.esc(original.slice(i + c.length));
-  },
+    /* el color del botón y del icono avisan de lo que se está a punto de pasar */
+    aceptar.textContent = ok;
+    aceptar.className = "px-3 py-1.5 text-[11px] font-medium rounded text-white " +
+      (peligro
+        ? "bg-rose-600 hover:bg-rose-700"
+        : "bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 dark:text-slate-900");
+    cancelarBtn.textContent = cancelar;
+    icono.className = "shrink-0 w-8 h-8 rounded-full flex items-center justify-center " +
+      (peligro
+        ? "bg-rose-100 text-rose-600 dark:bg-rose-500/15 dark:text-rose-400"
+        : "bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400");
+    icono.firstElementChild.className = "fa-solid text-sm " + (peligro ? "fa-trash-can" : "fa-circle-question");
 
-  /** A, B, … Z, AA, AB… para los encabezados de columna */
-  letraColumna(indice) {
-    let n = indice + 1;
-    let texto = "";
-    while (n > 0) {
-      const resto = (n - 1) % 26;
-      texto = String.fromCharCode(65 + resto) + texto;
-      n = Math.floor((n - 1) / 26);
-    }
-    return texto;
-  },
+    /* si se pide otro diálogo mientras este sigue abierto, el primero
+       se da por cancelado: nunca quedan dos diálogos encima */
+    if (confirmacion.pendiente) confirmacion.pendiente(false);
 
-  /** Pone letras de columna y números de fila, estilo hoja de cálculo */
-  decorarTabla(tabla) {
-    const thead = tabla.querySelector("thead tr");
-    if (!thead) return;
+    return new Promise(resolve => {
+      confirmacion.pendiente = resolve;
 
-    if (tabla.dataset.decorada !== "1") {
-      const esquina = document.createElement("th");
-      esquina.className = "col-esquina";
-      thead.prepend(esquina);
-      [...thead.querySelectorAll("th:not(.col-esquina)")].forEach((th, i) => {
-        const letra = document.createElement("th");
-        letra.className = "col-letras";
-        letra.textContent = UI.letraColumna(i);
-        th.before(letra);
-      });
-      tabla.dataset.decorada = "1";
-    }
+      const cerrar = respuesta => {
+        modal.classList.add("hidden");
+        modal.classList.remove("flex");
+        document.removeEventListener("keydown", teclas, true);
+        confirmacion.pendiente = null;
+        if (confirmacion.origen && confirmacion.origen.focus) confirmacion.origen.focus();
+        resolve(respuesta);
+      };
 
-    tabla.querySelectorAll("tbody tr").forEach((fila, i) => {
-      if (fila.dataset.numFila === "1") return;
-      if (fila.children.length < 2) return;   // fila de mensaje
-      const celda = document.createElement("td");
-      celda.className = "num-fila";
-      celda.textContent = String(i + 1);
-      fila.prepend(celda);
-      fila.dataset.numFila = "1";
+      const teclas = e => {
+        if (e.key === "Escape") { e.stopPropagation(); cerrar(false); return; }
+        /* el foco no se sale del diálogo: solo hay dos botones */
+        if (e.key === "Tab") {
+          e.preventDefault();
+          (document.activeElement === aceptar ? cancelarBtn : aceptar).focus();
+        }
+      };
+
+      confirmacion.origen = document.activeElement;
+      modal.onclick = e => { if (e.target === modal) cerrar(false); };
+      document.addEventListener("keydown", teclas, true);
+      aceptar.onclick = () => cerrar(true);
+      cancelarBtn.onclick = () => cerrar(false);
+
+      modal.classList.remove("hidden");
+      modal.classList.add("flex");
+      /* en una acción de riesgo el foco arranca en Cancelar:
+         Enter no debe borrar nada por descuido */
+      (peligro ? cancelarBtn : aceptar).focus();
     });
-  },
-
-  /** Vigila las tablas y las decora cada vez que se redibujan */
-  observarTablas() {
-    if (!("MutationObserver" in window)) {
-      document.querySelectorAll("table.excel").forEach(t => UI.decorarTabla(t));
-      return;
-    }
-    const obs = new MutationObserver(cambios => {
-      if (!cambios.some(c => c.type === "childList" && c.addedNodes.length)) return;
-      const tabla = cambios[0].target.closest("table");
-      if (tabla) UI.decorarTabla(tabla);
-    });
-    document.querySelectorAll("table.excel").forEach(tabla => {
-      UI.decorarTabla(tabla);
-      obs.observe(tabla.querySelector("tbody"), { childList: true });
-    });
-  },
-
-  /** Marca una fila por unos segundos para localizar el registro */
-  resaltarFila(tbody, texto) {
-    if (!tbody) return;
-    const fila = [...tbody.querySelectorAll("tr")]
-      .find(tr => UI.normalizar(tr.textContent).includes(UI.normalizar(texto)));
-    if (!fila) return;
-    fila.classList.add("resaltado");
-    try { fila.scrollIntoView({ block: "nearest" }); } catch (e) { /* noop */ }
-    setTimeout(() => fila.classList.remove("resaltado"), 2800);
-  },
-
-  confirm(mensaje) {
-    return window.confirm(mensaje);
   }
 };
+
+/* =========================================================
+   Avisos en pantalla
+   Los usa toda la aplicación; reemplazan a alert().
+   ========================================================= */
+
+/** Aviso corto. Los graves se quedan más tiempo y se pueden cerrar a mano. */
+function mostrarToast(mensaje, tipo = "ok") {
+  const contenedor = document.getElementById("toastContainer");
+  if (!contenedor) return;
+
+  const icono = { ok: "fa-circle-check", info: "fa-circle-info", warn: "fa-triangle-exclamation", err: "fa-circle-exclamation" };
+  const estilo = { ok: "toast-ok", info: "toast-info", warn: "toast-warn", err: "toast-err" };
+
+  const t = document.createElement("div");
+  t.className = "toast " + (estilo[tipo] || estilo.ok);
+  t.innerHTML = '<i class="fa-solid ' + (icono[tipo] || icono.ok) + '" aria-hidden="true"></i>' +
+                '<span class="toast-texto"></span>' +
+                '<button type="button" class="toast-x" aria-label="Cerrar aviso"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>';
+  t.querySelector(".toast-texto").textContent = mensaje;
+  contenedor.appendChild(t);
+
+  let tiempo = null;
+  const cerrar = () => {
+    clearTimeout(tiempo);
+    t.classList.add("toast-saliente");
+    t.addEventListener("transitionend", () => t.remove(), { once: true });
+    /* si el navegador no dispara la transición, no se queda pegado */
+    setTimeout(() => t.remove(), 400);
+  };
+
+  t.querySelector(".toast-x").addEventListener("click", cerrar);
+  t.addEventListener("click", cerrar);
+  tiempo = setTimeout(cerrar, tipo === "ok" || tipo === "info" ? 2600 : 5000);
+
+  /* si se acumulan, no se apilan sin límite */
+  while (contenedor.children.length > 4) contenedor.firstElementChild.remove();
+  return t;
+}

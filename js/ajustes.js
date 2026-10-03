@@ -67,65 +67,47 @@ const Ajustes = (() => {
     aplicar();
   }
 
-  async function guardarAjustes() {
-    if (ocupado) return;
-    ocupado = true;
-    const boton = $("btnGuardarAjustes");
-    boton.disabled = true;
-    boton.textContent = "Guardando…";
-
-    const empresa = {
-      nombre: $("cfgNombre").value.trim(),
-      rfc: $("cfgRfc").value.trim(),
-      direccion: $("cfgDireccion").value.trim(),
-      telefono: $("cfgTelefono").value.trim(),
-      correo: $("cfgCorreo").value.trim(),
-      logo: $("cfgLogo").value.trim()
-    };
-    if (!empresa.nombre) {
-      return terminar("El nombre de la empresa es obligatorio", boton);
-    }
-    if (empresa.correo && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(empresa.correo)) {
-      return terminar("El correo no parece válido", boton);
-    }
-
-    const impuesto = Number($("cfgImpuesto").value);
-    if (!(impuesto >= 0 && impuesto <= 100)) {
-      return terminar("El IVA debe estar entre 0 y 100", boton);
-    }
-
-    const nuevos = { empresa, impuesto, actualizado: new Date().toISOString() };
-    try {
-      await DB.guardar(RUTA, nuevos);
-      ajustes = nuevos;
-      aplicar();
-      mostrarToast("Datos de la factura guardados");
-      terminar("", boton, true);
-    } catch (e) {
-      console.error(e);
-      terminar("No se pudieron guardar los cambios", boton);
-    }
-  }
-
-  function terminar(mensaje, boton, ok = false) {
-    ocupado = false;
-    boton.disabled = false;
-    boton.textContent = "Guardar cambios";
-    if (mensaje) mostrarToast(mensaje, ok ? "ok" : "warn");
-  }
-
   /* ---------- pestañas ---------- */
 
-  function verPestana(nombre) {
-    for (const t of ["datos", "productos"]) {
-      $("panelAjustes" + t).classList.toggle("hidden", t !== nombre);
-      $("pestana" + t[0].toUpperCase() + t.slice(1)).setAttribute("aria-selected", String(t === nombre));
+  /* Cada opción tiene su propia pestaña: se edita y se guarda sola,
+     sin mezclarse con los demás datos. El formulario de producto va aparte
+     del catálogo, para no mezclar la lista con el formulario abierto. */
+  const PESTANAS = [
+    { id: "empresa",    icono: "fa-building",       etiqueta: "Empresa" },
+    { id: "logo",       icono: "fa-image",          etiqueta: "Logo" },
+    { id: "impuestos",  icono: "fa-percent",        etiqueta: "Impuestos" },
+    { id: "productos",  icono: "fa-boxes-stacked",  etiqueta: "Productos" },
+    { id: "nuevo",      icono: "fa-circle-plus",    etiqueta: "Nuevo producto" }
+  ];
+
+  function verPestana(nombre, moverFoco = false) {
+    for (const p of PESTANAS) {
+      const activa = p.id === nombre;
+      $("panelAjustes" + p.id).classList.toggle("hidden", !activa);
+      const boton = $("pestana" + p.id[0].toUpperCase() + p.id.slice(1));
+      boton.setAttribute("aria-selected", String(activa));
+      boton.tabIndex = activa ? 0 : -1;
     }
     if (nombre === "productos") cargarProductos();
-    else llenarFormulario();
+    if (moverFoco) $("pestana" + nombre[0].toUpperCase() + nombre.slice(1)).focus();
   }
 
-  /* ---------- datos de la factura ---------- */
+  /** Ir a una pestaña; la del formulario llega vacía si no se está editando */
+  function irA(nombre, moverFoco = false) {
+    verPestana(nombre, moverFoco);
+    if (nombre === "nuevo" && !editando) abrirFormulario(null);
+  }
+
+  /** Con las flechas se recorre la barra de pestañas, como manda el patrón */
+  function moverPestana(evento) {
+    const i = PESTANAS.findIndex(p => $("pestana" + p.id[0].toUpperCase() + p.id.slice(1)) === evento.currentTarget);
+    const salto = evento.key === "ArrowRight" ? 1 : evento.key === "ArrowLeft" ? -1 : 0;
+    if (!salto) return;
+    evento.preventDefault();
+    verPestana(PESTANAS[(i + salto + PESTANAS.length) % PESTANAS.length].id, true);
+  }
+
+  /* ---------- leer lo guardado para llenar el formulario ---------- */
 
   function llenarFormulario() {
     const e = actuales().empresa;
@@ -136,13 +118,13 @@ const Ajustes = (() => {
     $("cfgCorreo").value = e.correo || "";
     $("cfgLogo").value = e.logo || "";
     $("cfgImpuesto").value = actuales().impuesto;
-    pintarLogo();
     verLogo();
   }
 
   function verLogo() {
     const url = $("cfgLogo").value.trim();
     const previa = $("cfgLogoPrevia");
+    $("cfgLogoVacio").classList.toggle("hidden", !!url);
     if (!url) {
       previa.classList.add("hidden");
       previa.removeAttribute("src");
@@ -152,6 +134,84 @@ const Ajustes = (() => {
     previa.src = url;
   }
 
+  /** Si la imagen no carga, se vuelve al cuadro en blanco */
+  function logoNoCarga(mensaje) {
+    $("cfgLogoPrevia").classList.add("hidden");
+    $("cfgLogoVacio").classList.remove("hidden");
+    if (mensaje) mostrarToast(mensaje, "warn");
+  }
+
+  /* ---------- guardar cada pestaña por separado ---------- */
+
+  /** Escribe en /config/ajustes lo que ya había más lo que se cambió */
+  async function persistir(cambios, boton, mensaje, textoNormal) {
+    if (ocupado) return false;
+    ocupado = true;
+    boton.disabled = true;
+    const texto = boton.textContent;
+    boton.textContent = "Guardando…";
+
+    try {
+      const nuevos = { ...ajustes, ...cambios, actualizado: new Date().toISOString() };
+      await DB.guardar(RUTA, nuevos);
+      ajustes = nuevos;
+      aplicar();
+      mostrarToast(mensaje);
+      return true;
+    } catch (e) {
+      console.error(e);
+      mostrarToast("No se pudo guardar: revisa la conexión", "err");
+      return false;
+    } finally {
+      ocupado = false;
+      boton.disabled = false;
+      boton.textContent = textoNormal;
+    }
+  }
+
+  async function guardarEmpresa() {
+    const boton = $("btnGuardarEmpresa");
+    const empresa = {
+      nombre: $("cfgNombre").value.trim(),
+      rfc: $("cfgRfc").value.trim(),
+      direccion: $("cfgDireccion").value.trim(),
+      telefono: $("cfgTelefono").value.trim(),
+      correo: $("cfgCorreo").value.trim()
+    };
+
+    if (!empresa.nombre) return mostrarToast("El nombre de la empresa es obligatorio", "warn");
+    if (empresa.correo && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(empresa.correo))
+      return mostrarToast("El correo no parece válido", "warn");
+
+    await persistir(
+      { empresa: { ...actuales().empresa, ...empresa } },
+      boton, "Empresa guardada", "Guardar empresa"
+    );
+  }
+
+  async function guardarLogo() {
+    const boton = $("btnGuardarLogo");
+    const logo = $("cfgLogo").value.trim();
+
+    if (logo && !/^(https?:\/\/|data:image\/)/i.test(logo))
+      return mostrarToast("La dirección del logo debe empezar por https://", "warn");
+
+    await persistir(
+      { empresa: { ...actuales().empresa, logo } },
+      boton, logo ? "Logo guardado" : "Logo quitado", "Guardar logo"
+    );
+  }
+
+  async function guardarImpuesto() {
+    const boton = $("btnGuardarImpuesto");
+    const impuesto = Number($("cfgImpuesto").value);
+
+    if (!($("cfgImpuesto").value.trim() !== "" && impuesto >= 0 && impuesto <= 100))
+      return mostrarToast("El IVA debe estar entre 0 y 100", "warn");
+
+    await persistir({ impuesto }, boton, "Impuesto guardado", "Guardar impuesto");
+  }
+
   /* ---------- catálogo ---------- */
 
   async function cargarProductos() {
@@ -159,7 +219,7 @@ const Ajustes = (() => {
       productos = (await DB.productos.todos())
         .filter(p => p && p.nombre)
         .sort((a, b) => String(a.nombre).localeCompare(String(b.nombre), "es"));
-      buscables = productos.map(p => UI.normalizar(p.id + " " + p.nombre));
+      buscables = productos.map(p => UI.normalizar(p.id + " " + p.nombre + " " + (p.unidad || "pieza")));
     } catch (e) {
       console.error(e);
       productos = [];
@@ -189,7 +249,7 @@ const Ajustes = (() => {
   function pintarProductos() {
     const filtro = UI.normalizar($("cfgBuscar").value);
     if (buscables.length !== productos.length) {
-      buscables = productos.map(p => UI.normalizar(p.id + " " + p.nombre));
+      buscables = productos.map(p => UI.normalizar(p.id + " " + p.nombre + " " + (p.unidad || "pieza")));
     }
     const lista = productos.filter((p, i) => !filtro || buscables[i].includes(filtro));
 
@@ -198,6 +258,10 @@ const Ajustes = (() => {
     const listaEl = $("cfgLista");
     cfgLote++;
     const miLote = cfgLote;
+    if (!productos.length) {
+      listaEl.innerHTML = '<li class="px-3 py-8 text-center text-[11px] text-slate-400">El catálogo está vacío. Crea el primero en la pestaña <button type="button" class="underline decoration-dotted hover:text-slate-600 dark:hover:text-slate-200" data-ir-pestana="nuevo">Nuevo producto</button></li>';
+      return;
+    }
     listaEl.innerHTML = lista.length ? "" : '<li class="px-2 py-6 text-center text-[11px] text-slate-400">Sin resultados</li>';
     if (!lista.length) return;
 
@@ -266,11 +330,14 @@ const Ajustes = (() => {
     }
   }
 
+  /** El formulario siempre vive en su pestaña: se abre vacío o con el producto. */
   function abrirFormulario(id) {
     editando = id || null;
     const p = id ? productos.find(x => x.id === id) : null;
+    const titulo = p ? "Editar producto" : "Nuevo producto";
 
-    $("cfgFormTitulo").textContent = p ? "Editar producto" : "Nuevo producto";
+    $("cfgFormTitulo").textContent = titulo;
+    $("pestanaNuevoTexto").textContent = titulo;
     /* al agregar, el código llega puesto */
     $("cfgCodigo").value = p ? p.id.toUpperCase() : siguienteCodigo().toUpperCase();
     $("cfgCodigo").disabled = !!p;          /* el código es la clave: no se renombra */
@@ -280,17 +347,20 @@ const Ajustes = (() => {
     $("cfgPrecio").value = p ? milesColombia(soloDigitos(String(p.precio))) : "";
     $("cfgProductoImpuesto").value = p && p.impuesto !== undefined ? p.impuesto : 0;
 
-    $("cfgForm").classList.remove("hidden");
+    verPestana("nuevo");
     $("cfgProductoNombre").focus();
   }
 
+  /** Al cerrar el formulario se vuelve al catálogo, que es donde se ve el resultado. */
   function cerrarFormulario() {
     editando = null;
-    $("cfgForm").classList.add("hidden");
     /* Se limpia para no dejar un producto «a medio guardar» que al
        reenviar salte con «ya existe ese código». */
     for (const id of ["cfgCodigo", "cfgProductoNombre", "cfgPrecio", "cfgProductoImpuesto"]) $(id).value = "";
     $("cfgUnidad").value = "pieza";
+    $("cfgFormTitulo").textContent = "Nuevo producto";
+    $("pestanaNuevoTexto").textContent = "Nuevo producto";
+    verPestana("productos");
   }
 
   async function guardarProducto() {
@@ -348,7 +418,15 @@ const Ajustes = (() => {
   async function borrarProducto(id) {
     const p = productos.find(x => x.id === id);
     if (!p) return;
-    if (!UI.confirm("¿Borrar el producto " + p.id.toUpperCase() + " · " + p.nombre + "?")) return;
+
+    const ok = await UI.confirmar({
+      titulo: "Borrar producto",
+      mensaje: "Se quita del catálogo y deja de estar disponible en el POS.",
+      detalle: p.id.toUpperCase() + " · " + p.nombre,
+      ok: "Borrar",
+      peligro: true
+    });
+    if (!ok) return;
 
     try {
       await DB.productos.borrar(id);
@@ -358,7 +436,7 @@ const Ajustes = (() => {
       mostrarToast("Producto borrado: " + p.nombre, "warn");
     } catch (e) {
       console.error(e);
-      mostrarToast("No se pudo borrar el producto", "warn");
+      mostrarToast("No se pudo borrar el producto", "err");
     }
   }
 
@@ -382,7 +460,8 @@ const Ajustes = (() => {
 
   function abrir() {
     botonOrigen = document.activeElement;
-    verPestana("datos");
+    llenarFormulario();
+    verPestana("empresa");
     const modal = $("ajustesModal");
     modal.classList.remove("hidden");
     requestAnimationFrame(() => modal.classList.remove("opacity-0"));
@@ -407,21 +486,36 @@ const Ajustes = (() => {
     $("btnCerrarAjustes").addEventListener("click", cerrar);
     $("ajustesModal").addEventListener("click", e => { if (e.target === $("ajustesModal")) cerrar(); });
 
-    $("pestanaDatos").addEventListener("click", () => verPestana("datos"));
-    $("pestanaProductos").addEventListener("click", () => verPestana("productos"));
-    $("btnGuardarAjustes").addEventListener("click", guardarAjustes);
+    for (const p of PESTANAS) {
+      const boton = $("pestana" + p.id[0].toUpperCase() + p.id.slice(1));
+      boton.addEventListener("click", () => irA(p.id));
+      boton.addEventListener("keydown", moverPestana);
+    }
+    /* Enlaces dentro de un texto que llevan a otra pestaña.
+       Ojo: el atributo va en kebab-case porque el DOM guarda los
+       atributos en minúsculas (dataset.irPestana → data-ir-pestana). */
+    $("ajustesModal").addEventListener("click", e => {
+      const salto = e.target.closest("[data-ir-pestana]");
+      if (salto) irA(salto.dataset.irPestana);
+    });
+
+    $("btnGuardarEmpresa").addEventListener("click", guardarEmpresa);
+    $("btnGuardarLogo").addEventListener("click", guardarLogo);
+    $("btnGuardarImpuesto").addEventListener("click", guardarImpuesto);
 
     $("cfgLogo").addEventListener("input", verLogo);
-    $("cfgLogoPrevia").addEventListener("error", () => {
-      $("cfgLogoPrevia").classList.add("hidden");
-      mostrarToast("La dirección del logo no carga", "warn");
+    $("cfgLogoPrevia").addEventListener("error", () => logoNoCarga("La dirección del logo no carga"));
+    /* el logo de la cabecera tampoco puede quedar como imagen rota */
+    $("marcaLogo").addEventListener("error", () => {
+      $("marcaLogo").classList.add("hidden");
+      $("marcaInicial").classList.remove("hidden");
+      $("marcaLogo").dataset.src = "";
     });
     $("cfgLogoArchivo").addEventListener("change", e => subirLogo(e.target.files[0]));
-    $("btnQuitarLogo").addEventListener("click", () => { $("cfgLogo").value = ""; verLogo(); pintarLogo(); });
+    $("btnQuitarLogo").addEventListener("click", () => { $("cfgLogo").value = ""; verLogo(); });
 
     $("cfgPrecio").addEventListener("input", formatearPrecioAlTeclear);
     $("cfgBuscar").addEventListener("input", pintarProductos);
-    $("btnNuevoProducto").addEventListener("click", () => abrirFormulario(null));
     $("btnCancelarProducto").addEventListener("click", cerrarFormulario);
     $("btnGuardarProducto").addEventListener("click", guardarProducto);
     $("cfgLista").addEventListener("click", e => {
@@ -432,6 +526,9 @@ const Ajustes = (() => {
     });
 
     cargar();     // los ajustes se aplican antes de que el usuario cobre
+
+    /* Atajo de la PWA: ?vista=ajustes abre directo en esta pantalla */
+    if (new URLSearchParams(location.search).get("vista") === "ajustes") abrir();
   }
 
   return { iniciar, abrir, cerrar, cargar, aplicar };

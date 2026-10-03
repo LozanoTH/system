@@ -95,7 +95,7 @@ function firmaVenta() {
   return JSON.stringify({
     items: carrito.map(i => [i.id, i.cantidad]),
     descuento: $("discountInput").value,
-    cliente: $("clientName").value.trim()
+    cliente: $("clientName").value.trim(),
   });
 }
 
@@ -119,10 +119,10 @@ async function cargarCatalogo() {
     prepararBusqueda();
     renderizarBuscadorResultados(productosCatalogo);
     sincronizarPrecios();
-    estadoBd("ok", productosCatalogo.length + " productos");
+    estadoCatalogo(productosCatalogo.length);
   } catch (e) {
     console.error(e);
-    estadoBd("err", "catálogo no disponible");
+    if (estadoConexion !== "err") pintarLed("err", "catálogo no disponible");
     renderizarBuscadorResultados([]);
   }
 }
@@ -152,12 +152,28 @@ async function cargarClientes() {
   }
 }
 
-/* ---------- LED de la base en la cabecera ---------- */
-function estadoBd(clase, texto) {
+/* ---------- LED de la base en la cabecera ----------
+   El LED es de la conexión, no del catálogo: antes ambos escribían en el
+   mismo texto y el contador de productos tapaba el «sin conexión», que es
+   justo lo que hay que ver cuando se está vendiendo. */
+let estadoConexion = null;          /* "ok" | "err" */
+
+function pintarLed(clase, texto) {
   const icono = $("dbLedIcon");
   const colores = { ok: "text-emerald-500", err: "text-red-500", warn: "text-amber-400" };
   icono.className = "fa-solid fa-circle text-[6px] " + (colores[clase] || "text-slate-300");
   $("dbLedTexto").textContent = texto;
+}
+
+function estadoBd(clase, texto) {
+  estadoConexion = clase === "err" ? "err" : "ok";
+  pintarLed(clase, texto);
+}
+
+/** El catálogo informa sin pisar el estado de conexión */
+function estadoCatalogo(cantidad) {
+  if (estadoConexion === "err") return;
+  pintarLed("ok", cantidad + (cantidad === 1 ? " producto" : " productos"));
 }
 
 function vigilarBase() {
@@ -177,14 +193,16 @@ function vigilarBase() {
    ========================================================= */
 
 /* Normalizar 3.719 productos en cada tecla era lo que trababa el buscador,
-   así que el texto buscable se calcula una vez al cargar el catálogo. */
+   así que el texto buscable se calcula una vez al cargar el catálogo.
+   Se incluye la unidad para que "pieza", "botella" o "paquete" encontre
+   lo que se busca por cómo se vende y no solo por nombre o código. */
 function prepararBusqueda() {
   buscablesCatalogo = productosCatalogo.map(p =>
-    UI.normalizar(p.nombre + " " + p.codigo));
+    UI.normalizar(p.nombre + " " + p.codigo + " " + (p.unidad || "pieza")));
 }
 
 function filtrarProductos() {
-  const query = UI.normalizar($("searchInput").value).trim();
+  const query = UI.normalizar($("searchInput").value);   /* normalizar ya recorta */
   $("btnClearSearch").classList.toggle("hidden", !$("searchInput").value);
 
   if (!query) return renderizarBuscadorResultados(productosCatalogo);
@@ -274,10 +292,11 @@ function marcarFila(enfocar = false) {
    congelaba el navegador medio segundo, asi que entran por lotes: el scroll
    lo lleva el CSS y el usuario ya ve resultados mientras llega el resto. */
 const TARJETA = p => `
-    <button type="button" data-agregar="${UI.esc(p.id)}" title="${UI.esc(p.codigo + " \u00b7 " + p.nombre + " \u00b7 " + dinero(p.precio))}" class="w-full min-w-0 text-left bg-slate-50 hover:bg-slate-200/60 dark:bg-surface-950 dark:hover:bg-surface-800 border border-slate-200 dark:border-slate-800 px-2.5 py-2 sm:py-1.5 rounded text-xs transition-colors cursor-pointer flex items-center justify-between gap-2 sm:gap-3 group">
+    <button type="button" data-agregar="${UI.esc(p.id)}" title="${UI.esc(p.codigo + " \u00b7 " + p.nombre + " \u00b7 " + (p.unidad || "pieza") + " \u00b7 " + dinero(p.precio))}" class="w-full min-w-0 text-left bg-slate-50 hover:bg-slate-200/60 dark:bg-surface-950 dark:hover:bg-surface-800 border border-slate-200 dark:border-slate-800 px-2.5 py-2 sm:py-1.5 rounded text-xs transition-colors cursor-pointer flex items-center justify-between gap-2 sm:gap-3 group">
       <span class="flex items-center gap-2 min-w-0 flex-1">
         <span class="text-[10px] text-slate-400 font-mono flex-shrink-0">${UI.esc(p.codigo)}</span>
         <span class="font-medium text-slate-700 dark:text-slate-200 truncate group-hover:text-slate-900 dark:group-hover:text-white">${UI.esc(p.nombre)}</span>
+        <span class="text-[10px] text-slate-400 bg-slate-200/70 dark:bg-slate-800 rounded px-1 flex-shrink-0 hidden md:inline">${UI.esc(p.unidad || "pieza")}</span>
       </span>
       <span class="font-mono font-semibold text-slate-900 dark:text-slate-100 flex-shrink-0">${UI.esc(dinero(p.precio))}</span>
     </button>`;
@@ -371,13 +390,13 @@ function eliminarDelCarrito(id) {
   guardarBorrador();
 }
 
-function reiniciarFactura() {
+function reiniciarFactura(silencioso = false) {
   carrito = [];
   $("discountInput").value = 0;
   renderizarTablaCarrito();
   calcularTotales();
   guardarBorrador();
-  mostrarToast("Lista reiniciada");
+  if (!silencioso) mostrarToast("Lista reiniciada");
 }
 
 function renderizarTablaCarrito() {
@@ -388,17 +407,17 @@ function renderizarTablaCarrito() {
 
   tbody.innerHTML = carrito.map(item => `
     <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-      <td class="py-1.5 pl-1 pr-2 font-mono text-[11px] text-slate-400 whitespace-nowrap">${UI.esc(item.codigo)}</td>
-      <td class="py-1.5 pr-2 font-medium text-slate-800 dark:text-slate-200 truncate max-w-0" title="${UI.esc(item.nombre)}">${UI.esc(item.nombre)}</td>
+      <td class="celda-codigo py-1.5 pl-1 pr-2 font-mono text-[11px] text-slate-400 whitespace-nowrap">${UI.esc(item.codigo)}</td>
+      <td class="celda-nombre py-1.5 pr-2 font-medium text-slate-800 dark:text-slate-200 truncate max-w-0" title="${UI.esc(item.nombre)}">${UI.esc(item.nombre)}</td>
       <td class="py-1.5 text-center font-mono text-slate-600 dark:text-slate-400 hidden sm:table-cell">${UI.esc(dinero(item.precio))}</td>
       <td class="py-1.5 text-center whitespace-nowrap">
         <span class="inline-flex items-center border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-surface-950 rounded">
-          <button type="button" data-accion="menos" data-id="${UI.esc(item.id)}" class="w-7 h-7 sm:w-4 sm:h-4 -ml-1 sm:ml-0 flex items-center justify-center text-slate-400 hover:text-slate-700 active:text-slate-900">
+          <button type="button" data-accion="menos" data-id="${UI.esc(item.id)}" class="w-9 h-9 sm:w-7 sm:h-7 -ml-1 sm:ml-0 flex items-center justify-center text-slate-400 hover:text-slate-700 active:text-slate-900">
             <i class="fa-solid fa-minus text-[8px]"></i>
           </button>
           <input type="number" min="1" value="${item.cantidad}" data-cant="${UI.esc(item.id)}" inputmode="numeric"
-                 class="w-7 sm:w-6 text-center bg-transparent text-[11px] font-mono font-medium text-slate-800 dark:text-slate-200 focus:outline-none">
-          <button type="button" data-accion="mas" data-id="${UI.esc(item.id)}" class="w-7 h-7 sm:w-4 sm:h-4 -mr-1 sm:mr-0 flex items-center justify-center text-slate-400 hover:text-slate-700 active:text-slate-900">
+                 class="w-9 sm:w-8 text-center bg-transparent text-[11px] font-mono font-medium text-slate-800 dark:text-slate-200 focus:outline-none">
+          <button type="button" data-accion="mas" data-id="${UI.esc(item.id)}" class="w-9 h-9 sm:w-7 sm:h-7 -mr-1 sm:mr-0 flex items-center justify-center text-slate-400 hover:text-slate-700 active:text-slate-900">
             <i class="fa-solid fa-plus text-[8px]"></i>
           </button>
         </span>
@@ -421,30 +440,51 @@ function renderizarTablaCarrito() {
    Totales
    ========================================================= */
 
-function calcularTotales() {
+/** Números de la venta: un solo cálculo para pantalla, factura y borrador */
+function calcularVenta() {
   const subtotal = carrito.reduce((suma, i) => suma + i.precio * i.cantidad, 0);
-  const impuesto = subtotal * (IVA() / 100);
+  const tasa = IVA();
+  const impuesto = subtotal * (tasa / 100);
 
   const campo = $("discountInput");
   let descuento = parseFloat(campo.value) || 0;
+  /* Un descuento mayor que la venta dejaría el total en negativo:
+     se recorta al total y se avisa, en vez de cobrar de menos. */
   if (descuento > subtotal + impuesto) {
     descuento = subtotal + impuesto;
     campo.value = descuento;
   }
 
+  const total = Math.max(0, subtotal + impuesto - descuento);
+  return { subtotal, impuesto, tasa, descuento, total };
+}
+
+function calcularTotales() {
+  const v = calcularVenta();
   guardarBorrador();
-  const total = dinero(Math.max(0, subtotal + impuesto - descuento));
-  $("summarySubtotal").textContent = dinero(subtotal);
-  $("summaryTax").textContent = dinero(impuesto);
+
+  $("summarySubtotal").textContent = dinero(v.subtotal);
+  $("summaryTax").textContent = dinero(v.impuesto);
+  /* El descuento solo aparece cuando hay: si no, ocupa espacio y confunde */
+  $("filaDescuento").classList.toggle("hidden", v.descuento <= 0);
+  $("summaryDiscount").textContent = "−" + dinero(v.descuento);
+  $("discountPct").textContent = v.descuento > 0 && v.subtotal > 0
+    ? "(" + Math.round((v.descuento / v.subtotal) * 100) + "%)"
+    : "";
+
   /* Los dos sitios donde se ve el total (resumen y barra fija del móvil) */
   for (const id of ["summaryTotal", "totalMovil"]) {
     const nodo = $(id);
-    if (nodo) nodo.textContent = total;
+    if (nodo) nodo.textContent = dinero(v.total);
   }
 }
 
 /* =========================================================
-   Facturación
+   Facturación: cobrar es imprimir
+   Un solo botón. Guardar la venta y mandar la factura a la
+   impresora son el mismo gesto, así que no hay pantalla de
+   confirmación en el medio: se cobra, se imprime y el POS
+   queda listo para la siguiente venta.
    ========================================================= */
 
 async function procesarPago() {
@@ -461,19 +501,22 @@ async function procesarPago() {
   procesando = true;
   botonProcesar(true);
 
-  const subtotal = carrito.reduce((suma, i) => suma + i.precio * i.cantidad, 0);
-  const impuesto = subtotal * (IVA() / 100);
-  const descuento = parseFloat($("discountInput").value) || 0;
-  const total = subtotal + impuesto - descuento;
+  const { subtotal, impuesto, tasa, descuento, total } = calcularVenta();
   const cliente = $("clientName").value.trim() || "Consumidor Final";
 
-  let folio = "FV-0000";
+  /* Sin folio no hay factura que imprimir: mejor no cobrar que
+     sacar un papel sin número y dejar la venta a medias. */
+  let folio = "";
   try {
     const r = await DB.facturas.siguienteFolio();
-    const n = Number(r && r.snapshot ? r.snapshot.val() : 0) || 0;
-    folio = "FV-" + String(n).padStart(4, "0");
+    folio = "FV-" + String(Number(r && r.snapshot ? r.snapshot.val() : 0) || 0).padStart(4, "0");
   } catch (e) {
     console.warn("No se pudo leer el contador de folio:", e.message);
+  }
+  if (!folio) {
+    procesando = false;
+    botonProcesar(false);
+    return mostrarToast("Sin conexión con la base: no se pudo asignar folio", "err");
   }
 
   const factura = {
@@ -487,7 +530,7 @@ async function procesarPago() {
     })),
     subtotal,
     impuesto,
-    tasaImpuesto: IVA(),
+    tasaImpuesto: tasa,
     descuento,
     total,
     estado: "pagada"
@@ -497,14 +540,18 @@ async function procesarPago() {
     await DB.facturas.guardar(null, factura);   // id=null → genera la clave
   } catch (e) {
     console.error(e);
-    mostrarToast("Factura guardada solo en este equipo (sin conexión)", "warn");
+    procesando = false;
+    botonProcesar(false);
+    /* La venta sigue en pantalla: si se perdiera el papel
+       el cajero todavía tiene los productos para volver a cobrar. */
+    return mostrarToast("No se pudo guardar la factura. Revise la conexión", "err");
   }
 
   ultimaFactura = factura;
   ultimaVenta = firma;
   procesando = false;
   botonProcesar(false);
-  mostrarRecibo(factura);
+  imprimirFactura(factura);
 }
 
 /** El botón se apaga mientras se guarda: evita facturar dos veces */
@@ -515,26 +562,8 @@ function botonProcesar(ocupado) {
     b.disabled = !!ocupado;
     b.classList.toggle("opacity-60", !!ocupado);
     b.classList.toggle("cursor-not-allowed", !!ocupado);
-    b.textContent = ocupado ? "Guardando…" : "Completar Factura";
+    b.textContent = ocupado ? "Guardando…" : "Cobrar e imprimir";
   }
-}
-
-function mostrarRecibo(f) {
-  $("modalReceiptDetails").innerHTML = `
-    <div class="flex justify-between"><span>Folio</span><span class="text-slate-900 dark:text-white font-semibold">${UI.esc(f.folio)}</span></div>
-    <div class="flex justify-between gap-3"><span class="truncate">Cliente</span><span class="text-right text-slate-900 dark:text-white truncate">${UI.esc(f.cliente)}</span></div>
-    <div class="flex justify-between"><span>Items</span><span class="text-slate-900 dark:text-white">${f.items.reduce((s, i) => s + i.cantidad, 0)}</span></div>
-    <div class="flex justify-between"><span>Subtotal</span><span class="text-slate-900 dark:text-white">${UI.esc(dinero(f.subtotal))}</span></div>
-    <div class="flex justify-between"><span>IVA (${f.tasaImpuesto}%)</span><span class="text-slate-900 dark:text-white">${UI.esc(dinero(f.impuesto))}</span></div>
-    ${f.descuento ? '<div class="flex justify-between"><span>Descuento</span><span class="text-slate-900 dark:text-white">-' + UI.esc(dinero(f.descuento)) + "</span></div>" : ""}
-    <div class="flex justify-between border-t border-slate-200 dark:border-slate-800 pt-1 font-bold"><span>Total</span><span class="text-emerald-600 dark:text-emerald-400">${UI.esc(dinero(f.total))}</span></div>`;
-
-  const modal = $("invoiceModal");
-  modal.classList.remove("hidden");
-  const raf = window.requestAnimationFrame || (fn => setTimeout(fn, 0));
-  raf(() => modal.classList.remove("opacity-0"));
-  $("btnCerrarModal").focus();
-  mostrarToast("Factura " + f.folio + " registrada");
 }
 
 /** Mantiene el foco dentro del modal mientras esté abierto */
@@ -553,36 +582,17 @@ function atraparFoco(event) {
   else if (!modal.contains(document.activeElement)) { event.preventDefault(); primero.focus(); }
 }
 
-function cerrarModal() {
-  const modal = $("invoiceModal");
-  if (modal.classList.contains("hidden")) return;
-  modal.classList.add("opacity-0");
-  setTimeout(() => {
-    modal.classList.add("hidden");
-    $("btnProcesar").focus();          // el foco vuelve donde estaba
-  }, 200);
-}
-
-/** Vista previa del borrador: se abre en la misma página, sin pestañas nuevas. */
-function imprimirBorrador() {
-  if (!carrito.length) return mostrarToast("Agregue productos antes de imprimir", "info");
-  abrirVistaPrevia();
-}
-
 /** Arma el papel de la factura dentro del modal. */
-function pintarVistaPrevia() {
-  const subtotal = carrito.reduce((suma, i) => suma + i.precio * i.cantidad, 0);
-  const impuesto = subtotal * (IVA() / 100);
-  const descuento = parseFloat($("discountInput").value) || 0;
-  const total = subtotal + impuesto - descuento;
-  const cliente = $("clientName").value.trim() || "Consumidor Final";
+function pintarFactura(f) {
   const contacto = [CONFIG.empresa.rfc, CONFIG.empresa.direccion].filter(Boolean).map(UI.esc).join(" · ");
   const contacto2 = [CONFIG.empresa.telefono, CONFIG.empresa.correo].filter(Boolean).map(UI.esc).join(" · ");
+  const fecha = UI.fechaHora(f.fecha);
 
-  const filas = carrito.map(i =>
+  const filas = f.items.map(i =>
     '<tr class="border-b border-slate-200">' +
       '<td class="px-2 py-1 font-mono text-[11px]">' + UI.esc(i.codigo) + "</td>" +
-      '<td class="px-2 py-1">' + UI.esc(i.nombre) + "</td>" +
+      '<td class="px-2 py-1">' + UI.esc(i.descripcion) + "</td>" +
+      '<td class="px-2 py-1 text-slate-600 hidden sm:table-cell print:table-cell">' + UI.esc(i.unidad || "pieza") + "</td>" +
       '<td class="px-2 py-1 text-right">' + i.cantidad + "</td>" +
       '<td class="px-2 py-1 text-right font-mono">' + UI.esc(dinero(i.precio)) + "</td>" +
       '<td class="px-2 py-1 text-right font-mono">' + UI.esc(dinero(i.precio * i.cantidad)) + "</td>" +
@@ -599,15 +609,23 @@ function pintarVistaPrevia() {
         "</div>" +
       "</div>" +
       '<div class="text-right shrink-0">' +
-        '<p class="text-[10px] uppercase tracking-wider text-slate-500">Vista previa</p>' +
-        '<p class="text-sm font-bold">BORRADOR</p>' +
-        '<p class="text-[11px] text-slate-600">' + UI.esc(cliente) + "</p>" +
+        '<p class="text-[10px] uppercase tracking-wider text-slate-500">Factura de venta</p>' +
+        '<p class="text-sm font-bold font-mono">' + UI.esc(f.folio) + "</p>" +
+        '<p class="text-[11px] text-slate-600">' + fecha + "</p>" +
+        '<p class="text-[10px] uppercase tracking-wider font-semibold text-emerald-700">' +
+          (f.estado === "pagada" ? "Pagada" : UI.esc(f.estado || "")) +
+        "</p>" +
       "</div>" +
+    "</div>" +
+    '<div class="mt-3 pb-2 border-b border-slate-200">' +
+      '<span class="text-[10px] uppercase tracking-wider text-slate-500">Cliente</span>' +
+      '<p class="font-medium">' + UI.esc(f.cliente) + "</p>" +
     "</div>" +
     '<table class="w-full border-collapse mt-3">' +
       '<thead><tr class="bg-slate-100 text-[10px] uppercase tracking-wider text-slate-600">' +
         '<th class="px-2 py-1 text-left border border-slate-300">Código</th>' +
         '<th class="px-2 py-1 text-left border border-slate-300">Producto</th>' +
+        '<th class="px-2 py-1 text-left border border-slate-300 hidden sm:table-cell print:table-cell">Unidad</th>' +
         '<th class="px-2 py-1 text-right border border-slate-300">Cant.</th>' +
         '<th class="px-2 py-1 text-right border border-slate-300">Precio</th>' +
         '<th class="px-2 py-1 text-right border border-slate-300">Subtotal</th>' +
@@ -615,49 +633,53 @@ function pintarVistaPrevia() {
       "<tbody>" + filas + "</tbody>" +
     "</table>" +
     '<div class="mt-3 ml-auto w-full sm:w-64 text-[12px]">' +
-      '<div class="flex justify-between py-0.5"><span class="text-slate-600">Subtotal</span><span class="font-mono">' + UI.esc(dinero(subtotal)) + "</span></div>" +
-      '<div class="flex justify-between py-0.5"><span class="text-slate-600">IVA (' + IVA() + "%)</span><span class=\"font-mono\">" + UI.esc(dinero(impuesto)) + "</span></div>" +
-      (descuento ? '<div class="flex justify-between py-0.5"><span class="text-slate-600">Descuento</span><span class="font-mono">-' + UI.esc(dinero(descuento)) + "</span></div>" : "") +
+      '<div class="flex justify-between py-0.5"><span class="text-slate-600">Subtotal</span><span class="font-mono">' + UI.esc(dinero(f.subtotal)) + "</span></div>" +
+      '<div class="flex justify-between py-0.5"><span class="text-slate-600">IVA (' + f.tasaImpuesto + "%)</span><span class=\"font-mono\">" + UI.esc(dinero(f.impuesto)) + "</span></div>" +
+      (f.descuento ? '<div class="flex justify-between py-0.5"><span class="text-slate-600">Descuento</span><span class="font-mono">-' + UI.esc(dinero(f.descuento)) + "</span></div>" : "") +
       '<div class="flex justify-between items-baseline mt-1 pt-1.5 border-t-2 border-slate-900">' +
-        '<span class="font-bold">TOTAL</span><span class="text-base font-bold font-mono">' + UI.esc(dinero(total)) + "</span>" +
+        '<span class="font-bold">TOTAL</span><span class="text-base font-bold font-mono">' + UI.esc(dinero(f.total)) + "</span>" +
       "</div>" +
-    "</div>";
+    "</div>" +
+    '<p class="mt-6 text-center text-[11px] text-slate-500">Gracias por su compra</p>';
+
+  $("previewTitulo").textContent = "Factura " + f.folio;
 }
 
-function abrirVistaPrevia() {
+/** Muestra la factura y manda a imprimir sin pedir nada más. */
+function imprimirFactura(f) {
+  pintarFactura(f);
   const modal = $("previewModal");
-  pintarVistaPrevia();
   modal.classList.remove("hidden");
-  document.body.classList.add("overflow-hidden");
   modal.scrollTop = 0;
-  $("btnPreviewImprimir").focus();
+  /* setTimeout y no requestAnimationFrame: si la ventana del POS está
+     en segundo plano, rAF no se dispara y la venta se quedaría colgada
+     con la factura abierta sin llegar a imprimirse. */
+  setTimeout(() => window.print(), 50);
 }
 
-function cerrarVistaPrevia() {
+/** Al terminar de imprimir, la venta queda cerrada y el POS listo. */
+function terminarVenta() {
+  cerrarFactura();
+  reiniciarFactura(true);
+  ultimaVenta = "";                        // la próxima venta ya es otra
+  $("clientName").value = "Consumidor Final";
+  guardarBorrador();
+  $("searchInput").focus();
+  $("searchInput").select();
+  mostrarToast("Factura " + ultimaFactura.folio + " impresa");
+}
+
+function cerrarFactura() {
   const modal = $("previewModal");
   if (modal.classList.contains("hidden")) return;
   modal.classList.add("hidden");
-  document.body.classList.remove("overflow-hidden");
-  $("btnImprimir").focus();
+  $("previewPapel").innerHTML = "";
+  $("previewTitulo").textContent = "Factura";
 }
 
 /* =========================================================
    Notificaciones y tema
    ========================================================= */
-
-function mostrarToast(mensaje, tipo = "ok") {
-  const colores = {
-    ok: "bg-slate-900 text-white dark:bg-white dark:text-slate-900",
-    warn: "bg-amber-500 text-white",
-    err: "bg-red-600 text-white",
-    info: "bg-slate-700 text-white"
-  };
-  const t = document.createElement("div");
-  t.className = "px-2.5 py-1.5 rounded shadow-lg text-[11px] font-medium " + (colores[tipo] || colores.ok);
-  t.textContent = mensaje;
-  $("toastContainer").appendChild(t);
-  setTimeout(() => t.remove(), 2600);
-}
 
 function toggleDarkMode() {
   const oscuro = document.documentElement.classList.toggle("dark");
@@ -696,22 +718,27 @@ window.onload = function () {
   $("discountInput").addEventListener("input", calcularTotales);
   $("clientName").addEventListener("input", guardarBorrador);
   $("btnTema").addEventListener("click", toggleDarkMode);
-  $("btnLimpiar").addEventListener("click", () => {
-    if (carrito.length && !UI.confirm("¿Vaciar la lista de " + carrito.length + " producto(s)?"))
-      return;
+  $("btnLimpiar").addEventListener("click", async () => {
+    if (carrito.length) {
+      const ok = await UI.confirmar({
+        titulo: "Vaciar la lista",
+        mensaje: "Se quitan " + carrito.length + " producto(s) de la venta en curso.",
+        detalle: "La venta todavía no se ha facturado: si la quieres guardar, cobra primero.",
+        ok: "Vaciar",
+        cancelar: "Seguir cobrando",
+        peligro: true
+      });
+      if (!ok) return;
+    }
     reiniciarFactura();
   });
   $("btnProcesar").addEventListener("click", () => procesarPago());
   $("btnProcesarMovil").addEventListener("click", () => procesarPago());
-  $("btnImprimir").addEventListener("click", () => imprimirBorrador());
-  $("btnCerrarModal").addEventListener("click", cerrarModal);
-  $("btnNuevaVenta").addEventListener("click", () => {
-    cerrarModal();
-    reiniciarFactura();
-    ultimaVenta = "";                        // la próxima venta ya es otra
-    $("clientName").value = "Consumidor Final";
-    guardarBorrador();
-    $("searchInput").focus();
+
+  /* La factura se imprime sola al cobrar; cuando el diálogo se cierra
+     la venta termina y el POS queda apuntando al buscador. */
+  window.addEventListener("afterprint", () => {
+    if (!$("previewModal").classList.contains("hidden")) terminarVenta();
   });
 
   $("searchResultsGrid").addEventListener("click", e => {
@@ -754,21 +781,17 @@ window.onload = function () {
     if (filaActiva < 0 && carrito.length) { filaActiva = 0; marcarFila(); }
   });
 
-  $("invoiceModal").addEventListener("click", e => {
-    if (e.target === $("invoiceModal")) cerrarModal();
-  });
-
-  /* Vista previa: abrir, imprimir y cerrar, todo dentro de la misma pestaña */
+  /* Factura abierta: imprimir otra vez o dar la venta por terminada */
   $("btnPreviewImprimir").addEventListener("click", () => window.print());
-  $("btnPreviewCerrar").addEventListener("click", cerrarVistaPrevia);
+  $("btnPreviewCerrar").addEventListener("click", terminarVenta);
   $("previewModal").addEventListener("click", e => {
-    if (e.target === $("previewModal")) cerrarVistaPrevia();
+    if (e.target === $("previewModal")) terminarVenta();
   });
 
   document.addEventListener("keydown", e => {
-    if (e.key === "Escape" && !$("previewModal").classList.contains("hidden")) return cerrarVistaPrevia();
-    if (e.key === "Escape" && !$("invoiceModal").classList.contains("hidden")) return cerrarModal();
+    if (e.key === "Escape" && !$("previewModal").classList.contains("hidden")) return terminarVenta();
     if (e.key === "F2") { e.preventDefault(); $("searchInput").focus(); $("searchInput").select(); return; }
+    if (e.key === "F4") { e.preventDefault(); procesarPago(); return; }
     if (e.key === "F3") {
       e.preventDefault();
       $("cartTableBody").focus();
