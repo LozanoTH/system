@@ -1,3 +1,9 @@
+let editando = false; // Declarada globalmente
+
+// ... el resto de tus funciones (como guardarProducto, iRa, etc.)
+
+
+
 /* =========================================================
    Ajustes — datos de la factura y catálogo de productos
    Se guarda en /config/ajustes y se aplica sobre CONFIG,
