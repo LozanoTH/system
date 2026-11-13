@@ -1,7 +1,3 @@
 name = "posfacturacion"
 compatibility_date = "2026-11-13"
 pages_build_output_dir = "."
-
-# Para despliegues con Workers Assets / `wrangler deploy`
-[assets]
-directory = "."
