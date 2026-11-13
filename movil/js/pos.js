@@ -681,6 +681,7 @@ async function procesarPago() {
   ultimaVenta = firma;
   procesando = false;
   botonProcesar(false);
+  notificarVenta(factura);   // aviso del sistema: la factura ya quedó guardada
   imprimirFactura(factura);
 }
 
@@ -1013,6 +1014,57 @@ function cerrarFactura() {
    Notificaciones y tema
    ========================================================= */
 
+/** Pide permiso para avisar. Se intenta al cargar y, por si el navegador
+    lo exige, otra vez con el primer toque o tecla del usuario. */
+let preguntandoNotif = false;
+function pedirPermisoNotificaciones() {
+  if (!("Notification" in window)) return;
+  if (Notification.permission !== "default" || preguntandoNotif) return;
+  preguntandoNotif = true;
+  try {
+    const promesa = Notification.requestPermission();
+    if (promesa && typeof promesa.then === "function") {
+      promesa.then(() => { preguntandoNotif = false; }).catch(() => { preguntandoNotif = false; });
+    } else {
+      preguntandoNotif = false;
+    }
+  } catch (e) {
+    preguntandoNotif = false;
+  }
+}
+
+/** Notificación del sistema al cobrar una venta en este móvil.
+    Se pide al service worker para que salga también con la app instalada
+    (Android e iOS); si no hay, se usa la Notification directa del navegador. */
+function notificarVenta(factura) {
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+
+  const titulo = "Factura " + factura.folio + " cobrada";
+  const cuerpo = (factura.cliente || "Consumidor Final") + " · " + dinero(factura.total);
+  const opciones = {
+    body: cuerpo,
+    icon: "icons/icono-192.png",
+    badge: "icons/icono-192.png",
+    tag: "venta-" + factura.folio
+  };
+
+  const directa = () => {
+    try {
+      const n = new Notification(titulo, opciones);
+      n.onclick = () => { n.close(); window.focus(); };
+    } catch (e) { /* sin soporte: el toast de la app ya avisó */ }
+  };
+
+  if (navigator.serviceWorker && navigator.serviceWorker.getRegistration) {
+    navigator.serviceWorker.getRegistration().then(reg => {
+      if (reg && reg.showNotification) reg.showNotification(titulo, opciones);
+      else directa();
+    }).catch(directa);
+  } else {
+    directa();
+  }
+}
+
 function toggleDarkMode() {
   const oscuro = document.documentElement.classList.toggle("dark");
   document.documentElement.classList.toggle("light", !oscuro);
@@ -1032,6 +1084,12 @@ window.onload = function () {
     const guardado = localStorage.getItem("pos-tema");
     if (guardado === "dark" && !document.documentElement.classList.contains("dark")) toggleDarkMode();
   } catch (e) { /* noop */ }
+
+  /* Avisos del sistema al cobrar: se pide el permiso al cargar y, si el
+     navegador lo exige, otra vez con el primer toque o tecla. */
+  pedirPermisoNotificaciones();
+  window.addEventListener("pointerdown", pedirPermisoNotificaciones, { once: true, passive: true });
+  window.addEventListener("keydown", pedirPermisoNotificaciones, { once: true });
 
   Ajustes.iniciar();             // logo, datos de factura e IVA (aplicados al vuelo)
   $("taxRate").textContent = IVA();

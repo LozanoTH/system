@@ -269,7 +269,7 @@
             #btnCerrarAjustes { width: 44px; height: 44px; }
             .pestana { min-height: 44px; }
             #btnPreviewImprimir, #btnPreviewCerrar { min-height: 44px; }
-            #confirmCancelar, #confirmAceptar { min-height: 44px; }
+            #confirmCancelar, #confirmAceptar, #instalarCerrar { min-height: 44px; }
             /* En Ajustes todo lo que se toca mide al menos 44px de alto. */
             #ajustesModal button { min-height: 44px; }
             /* iOS hace zoom al enfocar un campo con letra menor de 16px. */
@@ -330,8 +330,8 @@
             #previewToolbar { flex: 0 0 auto; padding-top: calc(0.5rem + env(safe-area-inset-top)); }
             #previewPapel { flex: 1 1 auto; overflow-y: auto; -webkit-overflow-scrolling: touch; padding-bottom: calc(1rem + env(safe-area-inset-bottom)); }
             #previewTitulo { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-            #confirmModal { align-items: flex-end; padding: 0; }
-            #confirmModal > div { margin: 0; max-height: none; width: 100%; border-radius: 1.5rem 1.5rem 0 0; border-bottom: 0; padding-bottom: calc(1rem + env(safe-area-inset-bottom)); animation: sheetEntra 0.38s cubic-bezier(0.32, 0.72, 0.35, 1) backwards; }
+            #confirmModal, #instalarModal { align-items: flex-end; padding: 0; }
+            #confirmModal > div, #instalarModal > div { margin: 0; max-height: none; width: 100%; border-radius: 1.5rem 1.5rem 0 0; border-bottom: 0; padding-bottom: calc(1rem + env(safe-area-inset-bottom)); animation: sheetEntra 0.38s cubic-bezier(0.32, 0.72, 0.35, 1) backwards; }
 
             /* Las hojas llegan hasta el borde: el contenido no se mete bajo
                el notch (arriba) ni bajo la barra de gestos (abajo). */
@@ -340,7 +340,7 @@
         @keyframes sheetEntra { from { transform: translateY(102%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 
         @media (prefers-reduced-motion: reduce) {
-            #ajustesModal > div, #facturaEditModal > div, #previewModal > div, #confirmModal > div { animation: none; }
+            #ajustesModal > div, #facturaEditModal > div, #previewModal > div, #confirmModal > div, #instalarModal > div { animation: none; }
         }
     </style>
 </head>
@@ -367,6 +367,9 @@
                 </button>
                 <button id="btnTema" class="p-1.5 leading-none text-slate-500 hover:text-slate-800 dark:text-neutral-400 dark:hover:text-slate-100" title="Cambiar tema">
                     <i id="themeIcon" class="fa-solid fa-moon text-[13px]"></i>
+                </button>
+                <button id="btnInstalar" class="hidden p-1.5 leading-none text-slate-500 hover:text-slate-800 dark:text-neutral-400 dark:hover:text-slate-100" title="Instalar la app" aria-label="Instalar la app">
+                    <i class="fa-solid fa-download text-[13px]"></i>
                 </button>
                 <div class="h-3 w-px bg-slate-200 dark:border-white/10"></div>
                 <button id="btnLimpiar" class="hidden text-[10px] font-medium text-slate-500 hover:text-slate-800 dark:text-neutral-400 dark:hover:text-slate-200">
@@ -919,6 +922,27 @@
         </div>
     </div>
 
+    <!-- INSTALAR LA APP (PWA) -->
+    <div id="instalarModal" role="dialog" aria-modal="true" aria-labelledby="instalarTitulo"
+         class="fixed inset-0 z-[60] hidden items-center justify-center p-4 bg-slate-900/40 dark:bg-black/60 backdrop-blur-sm">
+        <div class="w-full max-w-sm bg-white dark:bg-surface-900 border border-slate-200 dark:border-white/10 rounded-lg shadow-2xl p-4 sm:p-5">
+            <div class="flex gap-3">
+                <span id="instalarIcono" class="shrink-0 w-8 h-8 rounded-full flex items-center justify-center bg-slate-900 text-white dark:bg-white dark:text-slate-900">
+                    <i class="fa-solid fa-download text-sm" aria-hidden="true"></i>
+                </span>
+                <div class="min-w-0 flex-1">
+                    <h3 id="instalarTitulo" class="text-sm font-semibold text-slate-900 dark:text-white">Instalar la app</h3>
+                    <div id="instalarContenido" class="mt-1 text-xs text-slate-500 dark:text-neutral-400"></div>
+                </div>
+            </div>
+            <div class="mt-4 flex justify-end">
+                <button id="instalarCerrar" class="px-3 py-1.5 text-[11px] font-medium bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-900 rounded">
+                    Entendido
+                </button>
+            </div>
+        </div>
+    </div>
+
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
 <script src="js/config.js"></script>
@@ -935,6 +959,96 @@
             navigator.serviceWorker.register("sw.js").catch(e => console.warn("Sin service worker:", e.message));
         });
     }
+</script>
+<script>
+    /* =========================================================
+       Instalar la app (PWA)
+       - Android / escritorio Chromium: dispara el diálogo nativo
+         (beforeinstallprompt).
+       - iPhone / iPad: muestra instrucciones, porque iOS no permite
+         instalar por código (Compartir → Añadir a pantalla de inicio).
+       ========================================================= */
+    (function () {
+        const $ = id => document.getElementById(id);
+        let instalacionPendiente = null;
+
+        const yaInstalada = () =>
+            (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) ||
+            window.navigator.standalone === true;
+
+        const esIOS = () =>
+            /iphone|ipad|ipod/i.test(navigator.userAgent) ||
+            (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+
+        function cerrarInstalacion() {
+            const modal = $("instalarModal");
+            modal.classList.add("hidden");
+            modal.classList.remove("flex");
+        }
+
+        function abrirInstrucciones() {
+            if (esIOS()) {
+                $("instalarTitulo").textContent = "Instalar en iPhone o iPad";
+                $("instalarContenido").innerHTML =
+                    '<ol class="list-decimal list-inside space-y-1.5 leading-relaxed">' +
+                    '<li>Toca el botón <strong>Compartir</strong> <i class="fa-solid fa-arrow-up-from-bracket" aria-hidden="true"></i> en la barra de Safari.</li>' +
+                    '<li>Desliza y elige <strong>Añadir a pantalla de inicio</strong>.</li>' +
+                    '<li>Toca <strong>Añadir</strong>: la app queda como un ícono más en tu pantalla.</li>' +
+                    '</ol>';
+            } else {
+                $("instalarTitulo").textContent = "Instalar la app";
+                $("instalarContenido").innerHTML =
+                    '<p class="leading-relaxed">Abre el menú del navegador (⋮ o ⋯) y elige ' +
+                    '<strong>Instalar</strong> o <strong>Añadir a pantalla de inicio</strong>.</p>';
+            }
+
+            const modal = $("instalarModal");
+            modal.classList.remove("hidden");
+            modal.classList.add("flex");
+            $("instalarCerrar").focus();
+        }
+
+        window.addEventListener("load", () => {
+            /* Sin HTTPS o sin service worker no hay app que instalar. */
+            if (!("serviceWorker" in navigator) || !location.protocol.startsWith("http")) return;
+
+            const btn = $("btnInstalar");
+            if (yaInstalada()) return;      /* ya corre como app: sobra el botón */
+
+            btn.classList.remove("hidden");
+
+            /* Android / escritorio: el navegador ofrece su botón nativo. */
+            window.addEventListener("beforeinstallprompt", e => {
+                e.preventDefault();
+                instalacionPendiente = e;
+            });
+
+            window.addEventListener("appinstalled", () => {
+                instalacionPendiente = null;
+                btn.classList.add("hidden");
+                if (typeof mostrarToast === "function") mostrarToast("App instalada");
+            });
+
+            btn.addEventListener("click", () => {
+                if (instalacionPendiente) {
+                    instalacionPendiente.prompt();
+                    instalacionPendiente.userChoice
+                        .then(() => { instalacionPendiente = null; })
+                        .catch(() => { instalacionPendiente = null; });
+                    return;
+                }
+                abrirInstrucciones();
+            });
+
+            $("instalarCerrar").addEventListener("click", cerrarInstalacion);
+            $("instalarModal").addEventListener("click", e => {
+                if (e.target === $("instalarModal")) cerrarInstalacion();
+            });
+            document.addEventListener("keydown", e => {
+                if (e.key === "Escape" && !$("instalarModal").classList.contains("hidden")) cerrarInstalacion();
+            });
+        });
+    })();
 </script>
 <script>
     /* =========================================================
