@@ -1,0 +1,12 @@
+{
+  "name": "posfacturacion",
+  "private": true,
+  "scripts": {
+    "preview": "wrangler pages dev . --project-name posfacturacion",
+    "dev": "wrangler pages dev . --project-name posfacturacion",
+    "deploy": "wrangler pages deploy . --project-name posfacturacion"
+  },
+  "devDependencies": {
+    "wrangler": "^4"
+  }
+}
