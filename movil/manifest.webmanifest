@@ -1,0 +1,56 @@
+{
+  "name": "Facturación POS",
+  "short_name": "POS",
+  "description": "Punto de venta: catálogo, carrito, cobro e impresión de facturas.",
+  "lang": "es",
+  "dir": "ltr",
+  "start_url": "./",
+  "scope": "./",
+  "id": "/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "any",
+  "background_color": "#f1f5f9",
+  "theme_color": "#0f172a",
+  "categories": ["business", "productivity", "shopping"],
+  "icons": [
+    {
+      "src": "icons/icono-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icono-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icono-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "icons/icono.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Nueva venta",
+      "short_name": "Vender",
+      "url": "./",
+      "icons": [{ "src": "icons/icono-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Ajustes",
+      "short_name": "Ajustes",
+      "url": "./?vista=ajustes",
+      "icons": [{ "src": "icons/icono-192.png", "sizes": "192x192" }]
+    }
+  ]
+}

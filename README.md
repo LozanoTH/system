@@ -4,14 +4,16 @@
 
 https://lozanoth.github.io/system/
 
-Punto de venta que funciona en el navegador: **cobrar es imprimir**. No hay build ni servidor; abre `index.html` y vende.
+Punto de venta que funciona en el navegador: **cobrar es imprimir**. No hay build ni servidor; abre `index.html` (redirige a `pc.html` o a `movil/` según el dispositivo) y vende.
 
 El catálogo, los clientes y las facturas se **guardan en Firebase Realtime Database**, así que los datos se comparten entre dispositivos y sobreviven al cerrar el navegador.
 
 ## Estructura
 
 ```
-index.html            Pantalla del POS (Tailwind por CDN) y hoja de impresión
+index.html            Puerta de entrada: redirige a la versión móvil o de escritorio según el user agent
+pc.html               Pantalla del POS de escritorio (Tailwind por CDN) y hoja de impresión
+movil/                Versión móvil del POS
 manifest.webmanifest  Datos de instalación: nombre, iconos, colores y acceso directo a Ajustes
 sw.js                 Service worker: qué se guarda para abrir la app sin internet
 icons/                Iconos de la app (192, 512, maskable y el de Apple)
@@ -65,7 +67,7 @@ La venta en curso se guarda en `localStorage`: recargar el navegador no la pierd
 
 ## La pantalla manda: tamaño y adaptación
 
-Todo el texto sale de una sola variable, al principio del segundo bloque `<style>` de `index.html`:
+Todo el texto sale de una sola variable, al principio del segundo bloque `<style>` de `pc.html`:
 
 ```css
 :root { --texto: clamp(14px, 0.55vw + 7px, 18px); }
@@ -172,7 +174,7 @@ Para volver a MXN: `locale: "es-MX"`, `codigo: "MXN"`, `decimales: 2`.
 
 | Caché | Qué lleva | Cómo responde |
 |---|---|---|
-| `pos-app-v1` | La pantalla: `index.html` y los `js/` | Service worker primero: contesta de la caché al instante y trae la versión nueva en segundo plano |
+| `pos-app-v1` | La pantalla: `pc.html` y los `js/` | Service worker primero: contesta de la caché al instante y trae la versión nueva en segundo plano |
 | `pos-cdn-v1` | Tailwind, Inter, Font Awesome y el SDK de Firebase | Caché primero: mientras estén guardados no se vuelven a pedir |
 | `pos-datos-v1` | Las lecturas HTTP de la base (por ejemplo `productos.json`) | Red primero y, si no hay respuesta, la última copia guardada |
 

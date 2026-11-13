@@ -1,0 +1,55 @@
+Bienvenido a
+OFICINA PRINCIPAL
+SOFTWARE NO REGISTRADO
+NIT: 830000000-1
+CALLE 76 NRO 20B-24 OF 206
+Telefono: 8051139
+
+BUENAVENTURA
+COMUN
+Factura de Venta P.O.S.
+POS 15130
+
+Fecha: 14-Oct-2026 Hora: 10:05:51
+Vendedor: CAJERO 1
+Cliente: OCASIONAL
+Identificacion: 1
+
+Cant.  I.V.A.  Descripcion                              Valor
+1.0000 /       CABLE IPHONE TIPO C-IPHONE CAJA BLANC   $14,000.0
+
+1.000000
+
+------------------------------------------------------------
+Detalle de Valores
+------------------------------------------------------------
+Valor Bruto:     $14,000.0
+Valor Descuento: $0.0
+Sub Total:       $14,000.0
+I.V.A.:          $0.0
+Impoconsumo:     $0.0
+I.C.O.:          $0.0
+I.N.C.:          $0.0
+TOTAL A PAGAR:   $14,000.0
+
+------------------------------------------------------------
+Informacion Tributaria
+------------------------------------------------------------
+%          Vr. Base    Valor Impuesto
+EXENTO D   $14,000     $0
+
+RECIBE:    $0.0
+CAMBIO:    $0.0
+
+------------------------------------------------------------
+Detalle de las Formas de Pago
+------------------------------------------------------------
+--- EFECTIVO: $14,000
+
+FACTURACION P.O.S AUTORIZACION DIAN
+Nro. 12345678 Fecha 2025/10/24 Fact Impresa el 14-Oct-2026 10:06:01
+Autoriza POS 1 - POS 10000000 Prefijo: POS Vigencia de 60 meses a 2030/10/24
+
+Gracias por su compra
+SERVIDORN
+Software: www.conexionpos.com

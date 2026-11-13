@@ -10,7 +10,7 @@
    VERSION: al activar borra las cachés viejas y se sirve lo nuevo.
    ========================================================= */
 
-const VERSION = "v8";                 /* súbelo al cambiar la app */
+const VERSION = "v10";                /* súbelo al cambiar la app */
 const CACHE_APP = "pos-app-" + VERSION;
 const CACHE_CDN = "pos-cdn-" + VERSION;
 const CACHE_DATOS = "pos-datos-" + VERSION;
@@ -19,7 +19,7 @@ const CACHES = [CACHE_APP, CACHE_CDN, CACHE_DATOS];
 /* Todo lo que hace falta para pintar la pantalla sin red */
 const APP = [
   "./",
-  "index.html",
+  "pc.html",
   "manifest.webmanifest",
   "js/config.js",
   "js/db.js",
@@ -162,7 +162,7 @@ self.addEventListener("fetch", evento => {
       } catch (e) {
         const cache = await caches.open(CACHE_APP);
         return (await cache.match(request)) ||
-               (await cache.match("index.html")) ||
+               (await cache.match("pc.html")) ||
                (await cache.match("./")) ||
                new Response("<h1>Sin conexión</h1>", { headers: { "Content-Type": "text/html; charset=utf-8" }, status: 503 });
       }
